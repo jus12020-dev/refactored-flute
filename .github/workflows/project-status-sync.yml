@@ -45,22 +45,8 @@ jobs:
             const number = Number(process.env.PROJECT_NUMBER);
             const statusFieldName = process.env.STATUS_FIELD_NAME;
 
-            const projectQuery = `
+            const userProjectQuery = `
               query($owner: String!, $number: Int!) {
-                organization(login: $owner) {
-                  projectV2(number: $number) {
-                    id
-                    fields(first: 50) {
-                      nodes {
-                        ... on ProjectV2SingleSelectField {
-                          id
-                          name
-                          options { id name }
-                        }
-                      }
-                    }
-                  }
-                }
                 user(login: $owner) {
                   projectV2(number: $number) {
                     id
@@ -78,10 +64,45 @@ jobs:
               }
             `;
 
-            const result = await github.graphql(projectQuery, { owner, number });
-            const project = result?.organization?.projectV2 || result?.user?.projectV2;
+            const orgProjectQuery = `
+              query($owner: String!, $number: Int!) {
+                organization(login: $owner) {
+                  projectV2(number: $number) {
+                    id
+                    fields(first: 50) {
+                      nodes {
+                        ... on ProjectV2SingleSelectField {
+                          id
+                          name
+                          options { id name }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            `;
+
+            // Try user-owned project first (matches /users/<owner>/projects/<n>), then org-owned.
+            let project = null;
+            try {
+              const userResult = await github.graphql(userProjectQuery, { owner, number });
+              project = userResult?.user?.projectV2 || null;
+            } catch (error) {
+              core.info(`User project lookup failed for '${owner}': ${error.message}`);
+            }
+
             if (!project) {
-              core.setFailed(`Project ${owner}/${number} not found.`);
+              try {
+                const orgResult = await github.graphql(orgProjectQuery, { owner, number });
+                project = orgResult?.organization?.projectV2 || null;
+              } catch (error) {
+                core.info(`Organization project lookup failed for '${owner}': ${error.message}`);
+              }
+            }
+
+            if (!project) {
+              core.setFailed(`Project ${owner}/${number} not found as user-owned or organization-owned project.`);
               return;
             }
 

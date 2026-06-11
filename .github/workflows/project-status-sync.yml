@@ -13,7 +13,6 @@ jobs:
     permissions:
       contents: read
       issues: read
-      projects: write
 
     steps:
       - name: Sync issue status on project board
